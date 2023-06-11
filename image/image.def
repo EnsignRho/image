@@ -1,0 +1,11 @@
+LIBRARY	image
+
+EXPORTS
+
+	bmp_open_file
+	bmp_save_file
+	bmp_close
+	
+	bmp_crop_to_content
+	bmp_get_attributes
+	bmp_resize
