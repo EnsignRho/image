@@ -1,15 +1,15 @@
-* This product is licensed under the PBL v1.0, see pbl_v1.txt
 LOCAL img AS ImageBitmap
 
 img = CREATEOBJECT("ImageBitmap")
-img.open("trig_series.png")
-img.crop()
+*img.open("trig_series.png")
+img.open("signature.jpg")
+img.crop(0, 0, 0.15)
 img.get_attributes()
 
 * Resize to 80% of its current size
 img.resize(0.80)
-img.save("trig_series_resized.jpg")
-img.save("trig_series_resized.png")
+img.save("resized.jpg")
+img.save("resized.png")
 img.close()
 
 
@@ -56,7 +56,9 @@ DEFINE CLASS ImageBitmap AS Custom
 		DECLARE INTEGER bmp_save_file		IN image.dll INTEGER nHandle, STRING@ cNewBmpPathname			&& Handle remains open after a save, must call bmp_close() to close it
 		DECLARE INTEGER bmp_close			IN image.dll INTEGER nHandle									&& Called to close a handle
 		
-		DECLARE INTEGER bmp_crop_to_content	IN image.dll INTEGER nHandle, INTEGER nRgb, INTEGER nType		&& nType is:  0=use white, 1=use black, 2=use nRgb, 3=auto-detect
+		DECLARE INTEGER bmp_crop_to_content	IN image.dll INTEGER nHandle, INTEGER nRgb, INTEGER nType, ;	&& nType is:  0=use white, 1=use black, 2=use nRgb, 3=auto-detect
+														 SINGLE fThreshold									&& fThreshold is the "slack" to use for the color identifier, like 0.15 is 15% slack
+
 		DECLARE INTEGER bmp_get_attributes	IN image.dll INTEGER nHandle, STRING@ cWidthOutInches8, STRING@ cHeightOutInches8, ;	&& Returns floating point in inches
 																		  STRING@ cBitsPerPixel8, ;									&& Bits per pixels of intermediate bitmap, typically 24 or 32
 																		  STRING@ cPixelsPerInchX8, STRING@ cPixelsPerInchY8		&& Multiply X by width to get pixels, and Y by height
@@ -104,7 +106,7 @@ DEFINE CLASS ImageBitmap AS Custom
 		ENDIF
 		
 		* Open the image
-		lnHandle = bmp_open_file("trig_series.png")
+		lnHandle = bmp_open_file(tcImagePathname)
 		IF BETWEEN(lnHandle, -10, -1)
 			RETURN -2
 		ENDIF
@@ -157,35 +159,75 @@ DEFINE CLASS ImageBitmap AS Custom
 		
 	ENDPROC
 	
+	**********
+	* tnType should be one of:
+	*
+	*		0 -- use white
+	*		1 -- use black
+	*		2 -- use nRgb
+	*		3 -- auto-detect
+	*
+	* tfThreshold indicates how much "slop" is allowed
+	* in the color being used for crop:
+	*
+	*		0.15 would be a 15% slack, meaning colors within
+	*		15% of the target color will be considered
+	*
 	PROCEDURE crop
-	LPARAMETERS tnRgb, tnType
-	LOCAL lnResult
+	LPARAMETERS tnRgb, tnType, tfThreshold
+	LOCAL lnResult, llTestP2, llTestP3
 	
 		* Make sure we have a valid handle
 		IF this.nHandle = 0
 			RETURN -1
 		ENDIF
 		
-		* Makek sure we have valid parameters
-		IF PCOUNT() = 2
-			* Two parameters
-			* Make sure our type is valid:  0=use white, 1=use black, 2=use nRgb, 3=auto-detect
-			IF NOT INLIST(tnType, 0, 1, 2, 3)
-				* Invalid choice
+		* Make sure we have valid parameters
+		DO CASE
+			CASE PCOUNT() = 3
+				* Three parameters
+				llTestP3 = .t.
+				llTestP2 = .t.
+				
+			CASE PCOUNT() = 2
+				* Two parameters
+				llTestP2 = .t.
+				
+			OTHERWISE
+				* One or zero parameters
+				* Set the type to use white
+				tnType = 0
+		ENDCASE
+		
+		* Set the threshold
+		IF llTestP3
+			IF TYPE("tfThreshold") != "N"
+				* Invalid option
 				RETURN -2
 			ENDIF
-				
 		ELSE
-			* One or zero parameters
-			* Set the type to use white
-			tnType = 0
+			tfThreshold = 0.0
+		ENDIF
+		tfThreshold = MIN(MAX(tfThreshold, 0.0), 1.0)
+		
+		* Set the type
+		IF llTestP2
+			* Make sure our type is valid:  0=use white, 1=use black, 2=use tnRgb, 3=auto-detect
+			IF NOT INLIST(tnType, 0, 1, 2, 3)
+				* Invalid choice
+				RETURN -3
+			ENDIF
 		ENDIF
 		
 		* Physically crop
-		lnResult = bmp_crop_to_content(this.nHandle, tnRgb, tnType)
+		lnResult = bmp_crop_to_content(this.nHandle, tnRgb, tnType, tfThreshold)
 		IF BETWEEN(lnResult, -10, -1)
-			RETURN -3
+			RETURN -4
 		ENDIF
+		
+		* Release the original, and set the handle to the cropped version
+		bmp_close(this.nHandle)
+		this.nHandle = lnResult
 		
 		* Signify
 		RETURN 0
@@ -207,7 +249,7 @@ DEFINE CLASS ImageBitmap AS Custom
 			RETURN -2
 		ENDIF
 		
-		* Delete the existing image
+		* Delete the existing image, and set the handle to the scaled image
 		bmp_close(this.nHandle)
 		this.nHandle = lnResult
 		

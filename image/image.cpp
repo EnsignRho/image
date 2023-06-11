@@ -4,13 +4,10 @@
 //
 //////
 //
-// This code is licensed under the PBL v1.0, see pbl_v1.txt.
-//
 //
 
 
 #include "image.h"
-
 
 
 //////////
@@ -81,7 +78,7 @@
 //						3	auto-detect
 //
 //////
-	IMAGE_API s32 bmp_crop_to_content(s32 tnHandle, int tnRgb, int tnType)
+	IMAGE_API s32 bmp_crop_to_content(s32 tnHandle, int tnRgb, int tnType, f32 tfThreshold)
 	{
 		union
 		{
@@ -97,7 +94,7 @@
 		//iBmp_saveToDisk(u.bmp, "c:\\temp\\test.bmp");
 
 		// Crop it down to its non-border color content
-		bmpCropped = iBmp_cropToContent(u.bmp, tnRgb, tnType);
+		bmpCropped = iBmp_cropToContent(u.bmp, tnRgb, tnType, tfThreshold);
 
 		// Signify
 		return _bmpCropped;
@@ -153,6 +150,7 @@
 		// Signify
 		return _bmpScaled;
 	}
+;;
 
 
 
@@ -212,4 +210,3 @@
 		// Signify
 		return 0;
 	}
-

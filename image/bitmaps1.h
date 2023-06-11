@@ -530,7 +530,11 @@ struct SObject;
 //////
 	SBitmap*				iBmp_allocate							(void);
 	SBitmap*				iBmp_copy								(SBitmap* bmpSrc);
-	SBitmap*				iBmp_cropToContent						(SBitmap* bmpSrc, int tnRgb, int tnType);
+	SBitmap*				iBmp_cropToContent						(SBitmap* bmpSrc, int tnRgb, int tnType, f32 tfThreshold);
+	bool					iiBmp_isWithinColorThreshold			(SRgb*  rgb,  SRgb maskColor, f32 tfThreshold);
+	bool					iiBmp_isWithinColorThreshold			(SRgba* rgba, SRgb maskColor, f32 tfThreshold);
+	bool					iiBmp_isWithinColorThreshold			(u8 red, u8 grn, u8 blu, SRgb maskColor, f32 tfThreshold);
+	bool					iiBmp_isColorChannelWithinThreshold		(f32 c, f32 cRef, f32 tfThreshold);
 	bool					iibmp_getBorderColors					(SBitmap* bmp, SRgb* cTop, SRgb* cRight, SRgb* cBottom, SRgb* cLeft);
 	bool					iBmp_compareColors						(SRgb* cRef, ...);
 	SBitmap*				iBmp_copyColorize						(SBitmap* bmpSrc, SBgra overColor, f32 minColor = 0.75f);

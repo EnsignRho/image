@@ -86,7 +86,7 @@
 	//						2	nRgb
 	//						3	auto-detect
 	//
-	SBitmap* iBmp_cropToContent(SBitmap* bmpSrc, int tnRgb, int tnType)
+	SBitmap* iBmp_cropToContent(SBitmap* bmpSrc, int tnRgb, int tnType, f32 tfThreshold)
 	{
 		s32			lnX, lnY, lnNewWidth, lnNewHeight;
 		s32			lnCropTop, lnCropLeft, lnCropRight, lnCropBottom;
@@ -164,7 +164,7 @@
 					for (lnY = 0; lnY < bmpSrc->bi.biHeight; ++lnY, lrgb = (SRgb*)((s8*)lrgb - bmpSrc->rowWidth))
 					{
 						// If something's not white, we're done
-						if (lrgb->red != maskColor.red || lrgb->grn != maskColor.grn || lrgb->blu != maskColor.blu)
+						if (!iiBmp_isWithinColorThreshold(lrgb, maskColor, tfThreshold))
 							goto done_left_24;
 					}
 				}
@@ -184,7 +184,7 @@
 					for (lnY = 0; lnY < bmpSrc->bi.biHeight; ++lnY, lrgb = (SRgb*)((s8*)lrgb - bmpSrc->rowWidth))
 					{
 						// If something's not white, we're done
-						if (lrgb->red != maskColor.red || lrgb->grn != maskColor.grn || lrgb->blu != maskColor.blu)
+						if (!iiBmp_isWithinColorThreshold(lrgb, maskColor, tfThreshold))
 							goto done_right_24;
 					}
 				}
@@ -204,7 +204,7 @@
 					for (lnX = 0; lnX < bmpSrc->bi.biWidth; ++lnX, ++lrgb)
 					{
 						// If something's not white, we're done
-						if (lrgb->red != maskColor.red || lrgb->grn != maskColor.grn || lrgb->blu != maskColor.blu)
+						if (!iiBmp_isWithinColorThreshold(lrgb, maskColor, tfThreshold))
 							goto done_top_24;
 					}
 				}
@@ -224,7 +224,7 @@
 					for (lnX = 0; lnX < bmpSrc->bi.biWidth; ++lnX, --lrgb)
 					{
 						// If something's not white, we're done
-						if (lrgb->red != maskColor.red || lrgb->grn != maskColor.grn || lrgb->blu != maskColor.blu)
+						if (!iiBmp_isWithinColorThreshold(lrgb, maskColor, tfThreshold))
 							goto done_bottom_24;
 					}
 				}
@@ -251,7 +251,7 @@
 					for (lnY = 0; lnY < bmpSrc->bi.biHeight; ++lnY, lrgba = (SRgba*)((s8*)lrgba - bmpSrc->rowWidth))
 					{
 						// If something's not white, we're done
-						if (lrgba->red != 0xff || lrgba->grn != 0xff || lrgba->blu != 0xff)
+						if (!iiBmp_isWithinColorThreshold(lrgba, maskColor, tfThreshold))
 							goto done_left_32;
 					}
 				}
@@ -271,7 +271,7 @@
 					for (lnY = 0; lnY < bmpSrc->bi.biHeight; ++lnY, lrgba = (SRgba*)((s8*)lrgba - bmpSrc->rowWidth))
 					{
 						// If something's not white, we're done
-						if (lrgba->red != 0xff || lrgba->grn != 0xff || lrgba->blu != 0xff)
+						if (!iiBmp_isWithinColorThreshold(lrgba, maskColor, tfThreshold))
 							goto done_right_32;
 					}
 				}
@@ -291,7 +291,7 @@
 					for (lnX = 0; lnX < bmpSrc->bi.biWidth; ++lnX, ++lrgba)
 					{
 						// If something's not white, we're done
-						if (lrgba->red != 0xff || lrgba->grn != 0xff || lrgba->blu != 0xff)
+						if (!iiBmp_isWithinColorThreshold(lrgba, maskColor, tfThreshold))
 							goto done_top_32;
 					}
 				}
@@ -311,7 +311,7 @@
 					for (lnX = 0; lnX < bmpSrc->bi.biWidth; ++lnX, --lrgba)
 					{
 						// If something's not white, we're done
-						if (lrgba->red != 0xff || lrgba->grn != 0xff || lrgba->blu != 0xff)
+						if (!iiBmp_isWithinColorThreshold(lrgba, maskColor, tfThreshold))
 							goto done_bottom_32;
 					}
 				}
@@ -343,6 +343,71 @@
 
 		// Signify
 		return bmpNew;
+	}
+
+	bool iiBmp_isWithinColorThreshold(SRgb* rgb, SRgb maskColor, f32 tfThreshold)
+	{
+		// What is the threshold?
+		if (tfThreshold == 0.0f)
+		{
+			// An exact color match
+			if (rgb->red != maskColor.red || rgb->grn != maskColor.grn || rgb->blu != maskColor.blu)
+				return false;
+
+			// Signify
+			return true;
+		}
+
+		// Compute a common threshold
+		return iiBmp_isWithinColorThreshold(rgb->red, rgb->grn, rgb->blu, maskColor, tfThreshold);
+	}
+
+	bool iiBmp_isWithinColorThreshold(SRgba* rgba, SRgb maskColor, f32 tfThreshold)
+	{
+		// What is the threshold?
+		if (tfThreshold == 0.0f)
+		{
+			// An exact color match
+			if (rgba->red != maskColor.red || rgba->grn != maskColor.grn || rgba->blu != maskColor.blu)
+				return false;
+
+			// Signify
+			return true;
+		}
+
+		// Compute a common threshold
+		return iiBmp_isWithinColorThreshold(rgba->red, rgba->grn, rgba->blu, maskColor, tfThreshold);
+	}
+
+	bool iiBmp_isWithinColorThreshold(u8 red, u8 grn, u8 blu, SRgb maskColor, f32 tfThreshold)
+	{
+		// Do the colors
+		if (!iiBmp_isColorChannelWithinThreshold((f32)red, (f32)maskColor.red, tfThreshold))	return false;
+		if (!iiBmp_isColorChannelWithinThreshold((f32)grn, (f32)maskColor.grn, tfThreshold))	return false;
+		if (!iiBmp_isColorChannelWithinThreshold((f32)blu, (f32)maskColor.blu, tfThreshold))	return false;
+
+		// Signify
+		return true;
+	}
+
+	bool iiBmp_isColorChannelWithinThreshold(f32 c, f32 cRef, f32 tfThreshold)
+	{
+		f32		cDelta, cMin, cMax;
+
+
+		// Calculate the delta
+		cDelta = (tfThreshold * 255.0f);
+
+		// Calculate the min
+		if ((cMin = cRef - cDelta) < 0.0f)
+			cMin = 0.0f;
+
+		// Calculate the max
+		if ((cMax = cRef + cDelta) > 255.0f)
+			cMax = 255.0f;
+
+		// Perform the test
+		return (c >= cMin && c <= cMax);
 	}
 
 
