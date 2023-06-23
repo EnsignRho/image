@@ -2,10 +2,34 @@ LIBRARY	image
 
 EXPORTS
 
+	bmp_new
 	bmp_open_file
 	bmp_save_file
+	bmp_save_as_monochrome
 	bmp_close
 	
 	bmp_crop_to_content
 	bmp_get_attributes
 	bmp_resize
+
+	bmp_flip_horizontal
+	bmp_flip_vertical
+	bmp_rotate_90_degrees_ccw
+
+	bmp_grayscale
+	bmp_set_pixel
+	bmp_get_pixel
+	bmp_colorize
+	bmp_swap_colors
+	bmp_wavy_line
+	bmp_dapple
+	bmp_draw_font
+	bmp_draw_font_fixed_point
+	bmp_draw_bullet
+	bmp_fill_rect
+	bmp_frame_rect
+	bmp_colorize_rect
+	bmp_frame_in_nine_parts
+	bmp_draw_line
+	bmp_draw_quad
+	bmp_colorized_line_gradient

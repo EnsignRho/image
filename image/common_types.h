@@ -181,6 +181,10 @@ cf64	_GR					= 1.618033988749895;	// golden ratio
 	#define grn(rgbaColor)					(u8)((rgbaColor >> 8)  & 0xff)
 	#define blu(rgbaColor)					(u8)( rgbaColor        & 0xff)
 
+	#define red_rgb(rgbaColor)				(u8)( rgbaColor        & 0xff)
+	#define grn_rgb(rgbaColor)				(u8)((rgbaColor >> 8)  & 0xff)
+	#define blu_rgb(rgbaColor)				(u8)((rgbaColor >> 16) & 0xff)
+
 
 // Shortcuts for non-NULL data arrays by arbitrary string
 #define data_s8(a,b)	s8	a[sizeof(b) - 1]	= { (s8*)b }

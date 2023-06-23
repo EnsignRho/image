@@ -650,7 +650,7 @@
 // Called to copy and colorize the indicated bitmap
 //
 //////
-	SBitmap* iBmp_copyColorize(SBitmap* bmpSrc, SBgra overColor, f32 minColor)
+	SBitmap* iBmp_copyColorize(SBitmap* bmpSrc, SBgra colorTemplate, f32 tfAlpha)
 	{
 		RECT		lrc;
 		SBitmap*	bmp;
@@ -662,7 +662,7 @@
 		{
 			// Colorize
 			SetRect(&lrc, 0, 0, bmp->bi.biWidth, bmp->bi.biHeight);
-			iBmp_colorize(bmp, &lrc, overColor, (minColor != 0.0f), minColor);
+			iBmp_colorize(bmp, &lrc, colorTemplate, tfAlpha);
 		}
 
 		// Indicate success or failure
@@ -1250,33 +1250,115 @@ exit_politely:
 //////
 	void iBmp_saveToDisk(SBitmap* bmp, s8* tcPathname)
 	{
-		FILE* lfh;
+		FILE*		lfh;
+		RGBQUAD		colors[2];
+		
+		
+		// Make sure we have a bitmap
+		if (!bmp)
+			return;
 
-
-		if (bmp)
-		{
-		//////////
 		// Simple disk write
-		//////
-			lfh = fopen(tcPathname, "wb+");
-			if (lfh)
+		lfh = fopen(tcPathname, "wb+");
+		if (lfh)
+		{
+			// Write file header, info header, bitmap bits
+			bmp->bh.bfType		= 'MB';
+			bmp->bh.bfReserved1	= 0;
+			bmp->bh.bfReserved2	= 0;
+			bmp->bh.bfOffBits	= sizeof(bmp->bh) + sizeof(bmp->bi) + ((bmp->bi.biBitCount == 1) ? sizeof(colors) : 0);
+			bmp->bh.bfSize		= bmp->bh.bfOffBits + bmp->bi.biSizeImage;
+
+			// Write header and info
+			fwrite(&bmp->bh, 1, sizeof(bmp->bh), lfh);
+			fwrite(&bmp->bi, 1, sizeof(bmp->bi), lfh);
+
+			// Write two RGBQUAD values, with colors black and white
+			if (bmp->bi.biBitCount == 1)
 			{
-				// Write file header, info header, bitmap bits
-				bmp->bh.bfType		= 'MB';
-				bmp->bh.bfReserved1	= 0;
-				bmp->bh.bfReserved2	= 0;
-				bmp->bh.bfOffBits	= sizeof(bmp->bh) + sizeof(bmp->bi);
-				bmp->bh.bfSize		= bmp->bh.bfOffBits + bmp->bi.biSizeImage;
+				// Initialize colors
+				colors[0].rgbRed		= 0;			// 0=Black
+				colors[0].rgbGreen		= 0;
+				colors[0].rgbBlue		= 0;
+				colors[0].rgbReserved	= 0;
+				colors[1].rgbRed		= 255;			// 1=White
+				colors[1].rgbGreen		= 255;
+				colors[1].rgbBlue		= 255;
+				colors[1].rgbReserved	= 0;
 
-				fwrite(&bmp->bh, 1, sizeof(bmp->bh), lfh);
-				fwrite(&bmp->bi, 1, sizeof(bmp->bi), lfh);
-				fwrite(bmp->bd, 1, bmp->bi.biSizeImage, lfh);
-
-				// Close
-				fclose(lfh);
+				// Write color data
+				fwrite(&colors, 1, sizeof(colors), lfh);
 			}
+
+			// Write bits
+			fwrite(bmp->bd, 1, bmp->bi.biSizeImage, lfh);
+
+			// Close
+			fclose(lfh);
 		}
 	}
+
+	s32 iBmp_saveToDisk_asMonochromeBitmap(SBitmap* bmp, s8* tcMonoBmpPathname)
+	{
+		RECT			lrc;
+		SBitmap*		bmp1;
+
+
+		// Create a physical copy by size
+		if (!(bmp1 = iBmp_allocate()))
+			return 0;
+
+		// Physically create it
+		iBmp_createBySize(bmp1, bmp->bi.biWidth, bmp->bi.biHeight, 1);
+
+		// Copy the existing bitmap's content into it
+		SetRect(&lrc, 0, 0, bmp->bi.biWidth, bmp->bi.biHeight);
+		iBmp_bitBlt(bmp1, &lrc, bmp);
+		//BitBlt(bmp1->hdc, 0, 0, bmp->bi.biWidth, bmp->bi.biHeight, bmp->hdc, 0, 0, SRCCOPY);
+
+		// Write it out
+		iBmp_saveToDisk(bmp1, tcMonoBmpPathname);
+		//iBmp_saveToDisk(bmp, "full.bmp");
+
+		// Delete it
+		iBmp_delete(&bmp1, true, true);
+
+		// Signify
+		return 0;
+	}
+	// 		int				width		= bmp->bi.biWidth;
+	// 		int				height		= bmp->bi.biHeight;
+	// 		int				bufferSize	= ((width + 31) / 32) * 4 * height;		// Calculate the buffer size
+	// 		BYTE*			buffer		= new BYTE[bufferSize];					// Allocate memory for the buffer
+	// 		BITMAPINFO		bmi			= { };
+	// 
+	// 		// Fill the buffer with monochrome data
+	// 		memset(buffer, 255, bufferSize);  // Set all bits to white
+	// 
+	// 		// Create a monochrome bitmap
+	// 		bmi.bmiHeader.biSize		= sizeof(BITMAPINFOHEADER);
+	// 		bmi.bmiHeader.biWidth		= width;
+	// 		bmi.bmiHeader.biHeight		= height;
+	// 		bmi.bmiHeader.biPlanes		= 1;
+	// 		bmi.bmiHeader.biBitCount	= 1;
+	// 		bmi.bmiHeader.biCompression	= BI_RGB;
+	// 		bmi.bmiHeader.biSizeImage	= bufferSize;
+	// 
+	// 		// Create a device context (DC) for the screen
+	// 		HDC screenDC		= GetDC(NULL);						// Get the screen DC
+	// 		HDC memoryDC		= CreateCompatibleDC(screenDC);		// Create a compatible DC
+	// 		HBITMAP hBitmap		= CreateDIBSection(memoryDC, &bmi, DIB_RGB_COLORS, (void**)&buffer, NULL, 0);
+	// 		HBITMAP hBitmapOld	= (HBITMAP)SelectObject(memoryDC, hBitmap);
+	// 
+	// 		// Perform some drawing operations on the memory DC here...
+	// 
+	// 		// Cleanup
+	// 		SelectObject(memoryDC, hBitmapOld);  // Restore the old bitmap
+	// 		DeleteObject(hBitmap);  // Delete the DIB section
+	// 		DeleteDC(memoryDC);  // Delete the memory DC
+	// 		ReleaseDC(NULL, screenDC);  // Release the screen DC
+	// 
+	// 		delete[] buffer;  // Free the buffer memory
 
 
 
@@ -1637,6 +1719,11 @@ exit_politely:
 				return(bmp->bi.biWidth * 4);
 
 
+			} else if (bmp->bi.biBitCount == 1) {
+				// Monochrome bitmap are rounded up to nearest BYTE
+				return (bmp->bi.biWidth + 7) / 8;
+
+
 			} else {
 				// Uh oh, spaghetti-oh!
 				return(bmp->bi.biSizeImage / bmp->bi.biHeight);
@@ -1657,24 +1744,40 @@ exit_politely:
 //////
 	void iBmp_createBySize(SBitmap* bmp, u32 width, u32 height, u32 tnBitCount)
 	{
+		HDC		hScreenDC;
+
+
+		// Is there a bitmap?
 		if (bmp)
 		{
 			// Populate the initial structure (min of 1x1, max of 3840 x 2160 (4x 1920x1080)
 			iBmp_populateBitmapStructure(bmp, min(max(width, (u32)1), (u32)3840), min(max(height, (u32)1), (u32)2160), tnBitCount);
 
 			// Create the HDC and DIB Section
-			bmp->hdc	= CreateCompatibleDC(GetDC(GetDesktopWindow()));
-			bmp->hbmp	= CreateDIBSection(bmp->hdc, (BITMAPINFO*)&bmp->bi, DIB_RGB_COLORS, (void**)&bmp->bd, null0, 0);
+			if (tnBitCount == 1)
+			{
+				// Monochrome DC
+				hScreenDC = GetDC(NULL);
+				bmp->hdc  = CreateCompatibleDC(hScreenDC);
+
+				// Clean up
+				DeleteDC(hScreenDC);
+
+			} else {
+				// Normal DC
+				bmp->hdc = CreateCompatibleDC(GetDC(GetDesktopWindow()));
+			}
+
+			// Create a bitmap
+			bmp->hbmp = CreateDIBSection(bmp->hdc, (BITMAPINFO*)&bmp->bi, DIB_RGB_COLORS, (void**)&bmp->bd, null0, 0);
+
+			// It should've allocated bitmap data
 			if (bmp->bd)
 			{
-				// Give it a rect
+				// Populate local variables
 				SetRect(&bmp->rc, 0, 0, width - 1, height - 1);
-
-				// Select its bitmap into its context
-				SelectObject(bmp->hdc, bmp->hbmp);
-
-				// Paint it white initially (the fast/easy way)
-				memset(bmp->bd, 255, bmp->bi.biSizeImage);
+				SelectObject(bmp->hdc, bmp->hbmp);				// Select its bitmap into its context
+				memset(bmp->bd, 255, bmp->bi.biSizeImage);		// Paint it white initially (the fast/easy way)
 			}
 		}
 	}
@@ -1695,9 +1798,13 @@ exit_politely:
 			bmp->bi.biSize				= sizeof(bmp->bi);
 			bmp->bi.biWidth				= tnWidth;
 			bmp->bi.biHeight			= tnHeight;
-			bmp->bi.biCompression		= 0;
+			bmp->bi.biCompression		= BI_RGB;
 			bmp->bi.biPlanes			= 1;
-			bmp->bi.biBitCount			= (u16)((tnBitCount == 24 || tnBitCount == 32) ? tnBitCount : 24);
+
+			// Jun.17.2023 RCH -- Added support for monochrome bitmap creation.  None of the algorithms will work for it, except save
+			if (tnBitCount == 1)		bmp->bi.biBitCount = 1;
+			else						bmp->bi.biBitCount = (u16)((tnBitCount == 24 || tnBitCount == 32) ? tnBitCount : 24);
+
 			bmp->bi.biXPelsPerMeter		= 2835;	// Assume 72 dpi
 			bmp->bi.biYPelsPerMeter		= 2835;
 			bmp->rowWidth				= iBmp_computeRowWidth(bmp);
@@ -1870,9 +1977,12 @@ exit_politely:
 //////
 	u32 iBmp_bitBlt(SBitmap* bmpDst, RECT* trc, SBitmap* bmpSrc)
 	{
+		bool		llBit;
+		u8			mono1, mono0;
 		u32			lnPixelsRendered;
 		s32			lnY, lnX, lnYDst, lnXDst;
 		f64			lfAlp, lfMalp;
+		u8*			monoDst;
 		SBgr*		lbgrDst;
 		SBgr*		lbgrSrc;
 		SBgra*		lbgraDst;
@@ -1933,7 +2043,7 @@ exit_politely:
 								++lbgrSrc;
 							}
 
-						} else {
+						} else if (bmpDst->bi.biBitCount == 32) {
 							// 24-bit to 32-bit
 							// Iterate through every visible column
 							for (lnX = 0, lnXDst = trc->left; lnX < bmpSrc->bi.biWidth && lnXDst < trc->right; lnXDst++, lnX++)
@@ -1951,6 +2061,32 @@ exit_politely:
 
 								// Move to next pixel on both
 								++lbgraDst;
+								++lbgrSrc;
+							}
+
+						} else if (bmpDst->bi.biBitCount == 1) {
+							// 24-bit to 1-bit
+							// Iterate through every visible column
+							for (lnX = 0, lnXDst = trc->left; lnX < bmpSrc->bi.biWidth && lnXDst < trc->right; lnXDst++, lnX++)
+							{
+								// Are we on the image?
+								if (lnXDst >= 0 && lnXDst < bmpDst->bi.biWidth)
+								{
+									// Determine the pixel offset, AND, and OR bits
+									monoDst = (u8*)bmpDst->bd + ((bmpDst->bi.biHeight - lnYDst - 1) * bmpDst->rowWidth) + (lnXDst / 8);
+									mono1   = 1 << (7 - (lnXDst % 8));
+									mono0   = ~mono1;
+
+									// Is this bit on?
+									llBit   = ((((f32)lbgrSrc->red * 0.35f) + ((f32)lbgrSrc->grn * 0.54f) + ((f32)lbgrSrc->blu * 0.11f)) <= 0.5f);
+									if (llBit)	*monoDst &= mono0;	// On,  set bit to 0 (black)
+									else		*monoDst |= mono1;	// Off, set bit to 1 (white)
+
+									// Increase our pixel count
+									++lnPixelsRendered;
+								}
+
+								// Move to next pixel on both
 								++lbgrSrc;
 							}
 						}
@@ -1990,7 +2126,7 @@ exit_politely:
 								++lbgraSrc;
 							}
 
-						} else {
+						} else if (bmpDst->bi.biBitCount == 32) {
 							// 32-bit to 32-bit
 							// Iterate through every visible column
 							for (lnX = 0, lnXDst = trc->left; lnX < bmpSrc->bi.biWidth && lnXDst < trc->right; lnXDst++, lnX++)
@@ -2022,6 +2158,32 @@ exit_politely:
 								// Move to next pixel on both
 								++lbgraDst;
 								++lbgraSrc;
+							}
+
+						} else if (bmpDst->bi.biBitCount == 1) {
+							// 32-bit to 1-bit
+							// Iterate through every visible column
+							for (lnX = 0, lnXDst = trc->left; lnX < bmpSrc->bi.biWidth && lnXDst < trc->right; lnXDst++, lnX++)
+							{
+								// Are we on the image?
+								if (lnXDst >= 0 && lnXDst < bmpDst->bi.biWidth && lbgraSrc->alp != 0)
+								{
+									// Determine the pixel offset, AND, and OR bits
+									monoDst = (u8*)bmpDst->bd + ((bmpDst->bi.biHeight - lnYDst - 1) * bmpDst->rowWidth) + (lnXDst / 8);
+									mono1   = lnXDst % 8;
+									mono0   = ~mono1;
+
+									// Is this bit on?
+									llBit   = ((((f32)lbgrSrc->red * 0.35f) + ((f32)lbgrSrc->grn * 0.54f) + ((f32)lbgrSrc->blu * 0.11f)) <= 0.5f);
+									if (llBit)	*monoDst &= mono0;	// On,  set bit to 0 (black)
+									else		*monoDst |= mono1;	// Off, set bit to 1 (white)
+
+									// Increase our pixel count
+									++lnPixelsRendered;
+								}
+
+								// Move to next pixel on both
+								++lbgrSrc;
 							}
 						}
 					}
@@ -2513,11 +2675,11 @@ exit_politely:
 // Called to grayscale a bitmap, or a portion of a bitmap
 //
 //////
-	u32 iBmp_grayscale(SBitmap* bmp, RECT* trc)
+	u32 iBmp_grayscale(SBitmap* bmp, RECT* trc, f32 tfAlpha)
 	{
-		u8		gray;
 		u32		lnPixelsRendered;
 		s32		lnY, lnX;
+		f32		lfAlp, lfMalp, gray;
 		SBgr*	lbgr;
 		SBgra*	lbgra;
 
@@ -2525,6 +2687,15 @@ exit_politely:
 		lnPixelsRendered = 0;
 		if (bmp && trc)
 		{
+			// Make sure the tfAlpha is ranged between 0.0f and 1.0f
+			if (tfAlpha < 0.0f)		tfAlpha = 0.0f;
+			if (tfAlpha > 1.0f)		tfAlpha = 1.0f;
+
+			// Calculate the alp and malp
+			lfAlp  = tfAlpha;
+			lfMalp = 1.0f - lfAlp;
+
+
 		//////////
 		// Draw it
 		//////
@@ -2546,12 +2717,12 @@ exit_politely:
 							if (lnX >= 0)
 							{
 								// Compute the grayscale
-								gray = (u8)min(max(((f32)lbgr->red * 0.35f + (f32)lbgr->grn * 0.54f + (f32)lbgr->blu * 0.11f), 0.0f), 255.0f);
+								gray = ((f32)lbgr->red * 0.35f) + ((f32)lbgr->grn * 0.54f) + ((f32)lbgr->blu * 0.11f);
 
 								// Copy the pixel
-								lbgr->red	= gray;
-								lbgr->grn	= gray;
-								lbgr->blu	= gray;
+								lbgr->red	= (u8)((gray * lfAlp) + ((f32)lbgr->red * lfMalp));
+								lbgr->grn	= (u8)((gray * lfAlp) + ((f32)lbgr->grn * lfMalp));
+								lbgr->blu	= (u8)((gray * lfAlp) + ((f32)lbgr->blu * lfMalp));
 								++lnPixelsRendered;
 							}
 
@@ -2570,12 +2741,12 @@ exit_politely:
 							if (lnX >= 0)
 							{
 								// Compute the grayscale
-								gray = (u8)min(max(((f32)lbgra->red * 0.35f + (f32)lbgra->grn * 0.54f + (f32)lbgra->blu * 0.11f), 0.0f), 255.0f);
+								gray = (((f32)lbgra->red * 0.35f) + ((f32)lbgra->grn * 0.54f) + ((f32)lbgra->blu * 0.11f));
 
 								// Copy the pixel
-								lbgra->red	= gray;
-								lbgra->grn	= gray;
-								lbgra->blu	= gray;
+								lbgra->red	= (u8)((gray * lfAlp) + ((f32)lbgra->red * lfMalp));
+								lbgra->grn	= (u8)((gray * lfAlp) + ((f32)lbgra->grn * lfMalp));
+								lbgra->blu	= (u8)((gray * lfAlp) + ((f32)lbgra->blu * lfMalp));
 								++lnPixelsRendered;
 							}
 
@@ -2591,7 +2762,7 @@ exit_politely:
 		//////////
 		// Indicate how many pixels were rendered
 		//////
-			return(lnPixelsRendered);
+			return lnPixelsRendered;
 	}
 
 
@@ -2605,54 +2776,27 @@ exit_politely:
 // value is applied to each value of the RGB() component.  maskColor pixels are colored fully.
 //
 //////
-	u32 iBmp_colorize(SBitmap* bmp, RECT* trc, SBgra colorTemplate, bool clampColor, f32 minColor)
+	u32 iBmp_colorize(SBitmap* bmp, RECT* trc, SBgra colorTemplate, f32 tfAlpha)
 	{
 		u32		lnPixelsRendered;
 		s32		lnY, lnX;
-		f32		lfGray, lfRed, lfGrn, lfBlu, lfDelta;
-		SBgr*	lbgr;
-		SBgra*	lbgra;
+		f32		lfGray, lfRed, lfGrn, lfBlu, lfAlp, lfMalp;
+		SRgb*	lrgb;
+		SRgba*	lrgba;
 
 
 		// Make sure the environment is sane
 		lnPixelsRendered = 0;
 		if (bmp && trc)
 		{
-		//////////
-		// Build the actual color
-		//////
-			lfRed = (f32)colorTemplate.red;
-			lfGrn = (f32)colorTemplate.grn;
-			lfBlu = (f32)colorTemplate.blu;
-			if (!clampColor)
-			{
-				// Compute with the colors being adjusted up toward 255 if any are below
-				lfDelta = 0.0f;
-				lfDelta = max(lfDelta, lfRed);
-				lfDelta = max(lfDelta, lfGrn);
-				lfDelta = max(lfDelta, lfBlu);
+			// Build the actual color
+			lfRed	= (f32)colorTemplate.red;
+			lfGrn	= (f32)colorTemplate.grn;
+			lfBlu	= (f32)colorTemplate.blu;
 
-				// Raise each of them by the difference if need be
-				if (lfDelta != 255.0f)
-				{
-					// Compute our overage percentage
-					lfDelta = 1.0f + ((255.0f - lfDelta) / 255.0f);
-
-					// Multiply each other
-					lfRed = min(lfRed * lfDelta, 255.0f);
-					lfGrn = min(lfGrn * lfDelta, 255.0f);
-					lfBlu = min(lfBlu * lfDelta, 255.0f);
-				}
-			}
-
-
-		//////////
-		// Verify our minColor is in range 0..1
-		// If 1.0, then allows 0..255
-		// If 0.5, then allows 128..255
-		// If 0.0, then allows 0 or 255
-		//////
-			minColor = min(max(minColor, 0.0f), 1.0f);
+			// Grab our constants
+			lfAlp	= tfAlpha;
+			lfMalp	= 1.0f - lfAlp;
 
 
 		//////////
@@ -2667,68 +2811,68 @@ exit_politely:
 					if (bmp->bi.biBitCount == 24)
 					{
 						// Build the pointer
-						lbgr = (SBgr*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 3));
+						lrgb = (SRgb*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 3));
 
 						// Iterate through every visible column
 						for (lnX = trc->left; lnX < bmp->bi.biWidth && lnX < trc->right; lnX++)
 						{
 							// Are we on the image?
-							if (lnX >= 0)
+							if (lnX >= 0 && lnX < bmp->bi.biWidth)
 							{
-								if (lbgr->red == 222 && lbgr->grn == 22 && lbgr->blu == 222)
+								if (lrgb->red == 222 && lrgb->grn == 22 && lrgb->blu == 222)
 								{
 									// Every transparent color gets the colorized color
-									lbgr->red = (u8)lfRed;
-									lbgr->grn = (u8)lfGrn;
-									lbgr->blu = (u8)lfBlu;
+									lrgb->red = (u8)lfRed;
+									lrgb->grn = (u8)lfGrn;
+									lrgb->blu = (u8)lfBlu;
 
 								} else {
 									// Compute the grayscale
-									lfGray = min(max(((f32)lbgr->red * 0.35f + (f32)lbgr->grn * 0.54f + (f32)lbgr->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
+									lfGray = min(max(((f32)lrgb->red * 0.35f + (f32)lrgb->grn * 0.54f + (f32)lrgb->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
 
 									// Apply the color proportionally
-									lbgr->red = (u8)iiBmp_squeezeColorChannel(lfGray * lfRed, minColor);
-									lbgr->grn = (u8)iiBmp_squeezeColorChannel(lfGray * lfGrn, minColor);
-									lbgr->blu = (u8)iiBmp_squeezeColorChannel(lfGray * lfBlu, minColor);
+									lrgb->red = (u8)(((lfGray * lfRed) * lfAlp) + ((f32)lrgb->red * lfMalp));
+									lrgb->grn = (u8)(((lfGray * lfGrn) * lfAlp) + ((f32)lrgb->grn * lfMalp));
+									lrgb->blu = (u8)(((lfGray * lfBlu) * lfAlp) + ((f32)lrgb->blu * lfMalp));
 								}
 								++lnPixelsRendered;
 							}
 
 							// Move to next pixel
-							++lbgr;
+							++lrgb;
 						}
 
 					} else if (bmp->bi.biBitCount == 32) {
 						// Build the pointer
-						lbgra = (SBgra*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 4));
+						lrgba = (SRgba*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 4));
 
 						// Iterate through every visible column
 						for (lnX = trc->left; lnX < bmp->bi.biWidth && lnX < trc->right; lnX++)
 						{
 							// Are we on the image?
-							if (lnX >= 0)
+							if (lnX >= 0 && lnX < bmp->bi.biWidth)
 							{
-								if (lbgra->red == 222 && lbgra->grn == 22 && lbgra->blu == 222)
+								if (lrgba->red == 222 && lrgba->grn == 22 && lrgba->blu == 222)
 								{
 									// Every transparent color gets the colorized color
-									lbgra->red = (u8)lfRed;
-									lbgra->grn = (u8)lfGrn;
-									lbgra->blu = (u8)lfBlu;
+									lrgba->red = (u8)lfRed;
+									lrgba->grn = (u8)lfGrn;
+									lrgba->blu = (u8)lfBlu;
 
 								} else {
 									// Compute the grayscale
-									lfGray = min(max(((f32)lbgra->red * 0.35f + (f32)lbgra->grn * 0.54f + (f32)lbgra->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
+									lfGray = min(max(((f32)lrgba->red * 0.35f + (f32)lrgba->grn * 0.54f + (f32)lrgba->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
 
 									// Apply the color proportionally
-									lbgra->red = (u8)iiBmp_squeezeColorChannel(lfGray * lfRed, minColor);
-									lbgra->grn = (u8)iiBmp_squeezeColorChannel(lfGray * lfGrn, minColor);
-									lbgra->blu = (u8)iiBmp_squeezeColorChannel(lfGray * lfBlu, minColor);
+									lrgba->red = (u8)(((lfGray * lfRed) * lfAlp) + ((f32)lrgba->red * lfMalp));
+									lrgba->grn = (u8)(((lfGray * lfGrn) * lfAlp) + ((f32)lrgba->grn * lfMalp));
+									lrgba->blu = (u8)(((lfGray * lfBlu) * lfAlp) + ((f32)lrgba->blu * lfMalp));
 								}
 								++lnPixelsRendered;
 							}
 
 							// Move to next pixel
-							++lbgra;
+							++lrgba;
 						}
 					}
 				}
@@ -2753,129 +2897,9 @@ exit_politely:
 // value is applied to each value of the RGB() component.  maskColor pixels are ignored.
 //
 //////
-	u32 iBmp_colorizeMask(SBitmap* bmp, RECT* trc, SBgra colorTemplate, bool clampColor, f32 minColor)
+	u32 iBmp_colorizeMask(SBitmap* bmp, RECT* trc, SBgra colorTemplate, f32 tfAlpha)
 	{
-		u32		lnPixelsRendered;
-		s32		lnY, lnX;
-		f32		lfGray, lfRed, lfGrn, lfBlu, lfDelta;
-		SBgr*	lbgr;
-		SBgra*	lbgra;
-
-
-		// Make sure the environment is sane
-		lnPixelsRendered = 0;
-		if (bmp && trc)
-		{
-		//////////
-		// Build the actual color
-		//////
-			lfRed = (f32)colorTemplate.red;
-			lfGrn = (f32)colorTemplate.grn;
-			lfBlu = (f32)colorTemplate.blu;
-			if (!clampColor)
-			{
-				// Compute with the colors being adjusted up toward 255 if any are below
-				lfDelta = 0.0f;
-				lfDelta = max(lfDelta, lfRed);
-				lfDelta = max(lfDelta, lfGrn);
-				lfDelta = max(lfDelta, lfBlu);
-
-				// Raise each of them by the difference if need be
-				if (lfDelta != 255.0f)
-				{
-					// Compute our overage percentage
-					lfDelta = 1.0f + ((255.0f - lfDelta) / 255.0f);
-
-					// Multiply each other
-					lfRed = min(lfRed * lfDelta, 255.0f);
-					lfGrn = min(lfGrn * lfDelta, 255.0f);
-					lfBlu = min(lfBlu * lfDelta, 255.0f);
-				}
-			}
-
-
-		//////////
-		// Verify our minColor is in range 0..1
-		// If 1.0, then allows 0..255
-		// If 0.5, then allows 128..255
-		// If 0.0, then allows 0 or 255
-		//////
-			minColor = min(max(minColor, 0.0f), 1.0f);
-
-
-		//////////
-		// Draw it
-		//////
-			for (lnY = trc->top; lnY < bmp->bi.biHeight && lnY < trc->bottom; lnY++)
-			{
-				// Are we on the image?
-				if (lnY >= 0)
-				{
-					// What exactly are we copying?
-					if (bmp->bi.biBitCount == 24)
-					{
-						// Build the pointer
-						lbgr = (SBgr*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 3));
-
-						// Iterate through every visible column
-						for (lnX = trc->left; lnX < bmp->bi.biWidth && lnX < trc->right; lnX++)
-						{
-							// Are we on the image?
-							if (lnX >= 0)
-							{
-								if (!(lbgr->red == 222 && lbgr->grn == 22 && lbgr->blu == 222))
-								{
-									// Compute the grayscale
-									lfGray = min(max(((f32)lbgr->red * 0.35f + (f32)lbgr->grn * 0.54f + (f32)lbgr->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
-
-									// Apply the color proportionally
-									lbgr->red = (u8)iiBmp_squeezeColorChannel(lfGray * lfRed, minColor);
-									lbgr->grn = (u8)iiBmp_squeezeColorChannel(lfGray * lfGrn, minColor);
-									lbgr->blu = (u8)iiBmp_squeezeColorChannel(lfGray * lfBlu, minColor);
-								}
-								++lnPixelsRendered;
-							}
-
-							// Move to next pixel
-							++lbgr;
-						}
-
-					} else if (bmp->bi.biBitCount == 32) {
-						// Build the pointer
-						lbgra = (SBgra*)((s8*)bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (trc->left * 4));
-
-						// Iterate through every visible column
-						for (lnX = trc->left; lnX < bmp->bi.biWidth && lnX < trc->right; lnX++)
-						{
-							// Are we on the image?
-							if (lnX >= 0)
-							{
-								if (!(lbgra->red == 222 && lbgra->grn == 22 && lbgra->blu == 222))
-								{
-									// Compute the grayscale
-									lfGray = min(max(((f32)lbgra->red * 0.35f + (f32)lbgra->grn * 0.54f + (f32)lbgra->blu * 0.11f), 0.0f), 255.0f) / 255.0f;
-
-									// Apply the color proportionally
-									lbgra->red = (u8)iiBmp_squeezeColorChannel(lfGray * lfRed, minColor);
-									lbgra->grn = (u8)iiBmp_squeezeColorChannel(lfGray * lfGrn, minColor);
-									lbgra->blu = (u8)iiBmp_squeezeColorChannel(lfGray * lfBlu, minColor);
-								}
-								++lnPixelsRendered;
-							}
-
-							// Move to next pixel
-							++lbgra;
-						}
-					}
-				}
-			}
-		}
-
-
-		//////////
-		// Indicate how many pixels were rendered
-		//////
-			return(lnPixelsRendered);
+		return iBmp_colorize(bmp, trc, colorTemplate, tfAlpha);
 	}
 
 
@@ -3496,18 +3520,25 @@ exit_politely:
 //		/\/\/\/\/\/\/
 //
 //////
-	u32 iBmp_wavyLine(SBitmap* bmp, RECT* trc, SBgra color)
+	u32 iBmp_wavyLine(SBitmap* bmp, RECT* trc, SBgra color, f32 tfAlpha)
 	{
 		s32		lnY, lnX, lnXX, lnY_inc;
 		u32		lnPixelsRendered;
-		SBgr*	lbgr;
-		SBgra*	lbgra;
+		f32		lfAlp, lfMalp;
+		SRgb*	lrgb;
+		SRgba*	lrgba;
 
 
 		// Make sure our environment is sane
 		lnPixelsRendered = 0;
 		if (bmp)
 		{
+			// Compute our alpha
+			if (tfAlpha < 0.0f)		tfAlpha = 0.0f;
+			if (tfAlpha > 1.0f)		tfAlpha = 1.0f;
+			lfAlp	= tfAlpha;
+			lfMalp	= 1.0f - lfAlp;
+
 			// Begin at the lower-left
 			lnY		= trc->bottom;
 			lnY_inc	= -1;
@@ -3517,12 +3548,12 @@ exit_politely:
 				for (lnX = trc->left, lnXX = 0; lnX < bmp->bi.biWidth && lnX < trc->right; lnX += (lnXX & 1), lnXX++)
 				{
 					// Grab the pointer for this part of the wavy line
-					lbgr = (SBgr*)(bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (lnX * 3));
+					lrgb = (SRgb*)(bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (lnX * 3));
 
 					// Draw the pixel
-					lbgr->red = color.red;
-					lbgr->grn = color.grn;
-					lbgr->blu = color.blu;
+					lrgb->red = (u8)(((f32)color.red * lfAlp) + ((f32)lrgb->red * lfMalp));
+					lrgb->grn = (u8)(((f32)color.grn * lfAlp) + ((f32)lrgb->grn * lfMalp));
+					lrgb->blu = (u8)(((f32)color.blu * lfAlp) + ((f32)lrgb->blu * lfMalp));
 
 					// Adjust for the next pixel
 					lnY += lnY_inc;
@@ -3544,13 +3575,13 @@ exit_politely:
 				for (lnX = trc->left, lnXX = 0; lnX < bmp->bi.biWidth && lnX <= trc->right; lnX += (lnXX & 1), lnXX++)
 				{
 					// Grab the pointer for this part of the wavy line
-					lbgra = (SBgra*)(bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (lnX * 4));
+					lrgba = (SRgba*)(bmp->bd + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth) + (lnX * 4));
 
 
 					// Draw the pixel
-					lbgra->red = color.red;
-					lbgra->grn = color.grn;
-					lbgra->blu = color.blu;
+					lrgba->red = (u8)(((f32)color.red * lfAlp) + ((f32)lrgba->red * lfMalp));
+					lrgba->grn = (u8)(((f32)color.grn * lfAlp) + ((f32)lrgba->grn * lfMalp));
+					lrgba->blu = (u8)(((f32)color.blu * lfAlp) + ((f32)lrgba->blu * lfMalp));
 
 					// Adjust for the next pixel
 					lnY += lnY_inc;
@@ -3571,6 +3602,179 @@ exit_politely:
 
 		// Return the region
 		return(lnPixelsRendered);
+	}
+
+
+
+
+//////////
+//
+// Called to flip a bitmap horizontally.
+// Creates a new bitmap of equal size.
+//
+//////
+	SBitmap* iBmp_flipHorizontal(SBitmap* bmp)
+	{
+		s32			lnX, lnY;
+		SRgb*		lrgbS;
+		SRgb*		lrgbD;
+		SRgba*		lrgbaS;
+		SRgba*		lrgbaD;
+		SBitmap*	bmpNew;
+
+
+		// Create a new image
+		if (!bmp || !(bmp->bi.biBitCount == 24 || bmp->bi.biBitCount == 32) || !(bmpNew = iBmp_allocate()))
+			return NULL;
+
+		// Physically create it
+		iBmp_createBySize(bmpNew, bmp->bi.biWidth, bmp->bi.biHeight, bmp->bi.biBitCount);
+
+		// Render it
+		if (bmp->bi.biBitCount == 24)
+		{
+			// Iterate through line by line
+			for (lnY = 0; lnY < bmp->bi.biHeight; ++lnY)
+			{
+				// Get our pointers
+				lrgbS = (SRgb*)(bmp->bd    + ((bmp->bi.biHeight    - lnY - 1) * bmp->rowWidth));
+				lrgbD = (SRgb*)(bmpNew->bd + ((bmpNew->bi.biHeight - lnY - 1) * bmpNew->rowWidth) + ((bmpNew->bi.biWidth - 1) * (bmp->bi.biBitCount / 8)));
+
+				// Iterate across this row
+				for (lnX = 0; lnX < bmp->bi.biWidth; ++lnX, ++lrgbS, --lrgbD)
+					*lrgbD = *lrgbS;
+			}
+
+		} else if (bmp->bi.biBitCount == 32) {
+			// Iterate through line by line
+			for (lnY = 0; lnY < bmp->bi.biHeight; ++lnY)
+			{
+				// Get our pointers
+				lrgbaS = (SRgba*)(bmp->bd    + ((bmp->bi.biHeight    - lnY - 1) * bmp->rowWidth));
+				lrgbaD = (SRgba*)(bmpNew->bd + ((bmpNew->bi.biHeight - lnY - 1) * bmpNew->rowWidth) + ((bmpNew->bi.biWidth - 1) * 4));
+
+				// Iterate across this row
+				for (lnX = 0; lnX < bmp->bi.biWidth; ++lnX, ++lrgbaS, --lrgbaD)
+					*lrgbaD = *lrgbaS;
+			}
+		}
+
+		// Signify
+		return bmpNew;
+	}
+
+
+
+
+//////////
+//
+// Called to flip an image vertically
+//
+//////
+	SBitmap* iBmp_flipVertical(SBitmap* bmp)
+	{
+		s32			lnY;
+		SRgb*		lrgbS;
+		SRgb*		lrgbD;
+		SRgba*		lrgbaS;
+		SRgba*		lrgbaD;
+		SBitmap*	bmpNew;
+
+
+		// Create a new image
+		if (!bmp || !(bmp->bi.biBitCount == 24 || bmp->bi.biBitCount == 32) || !(bmpNew = iBmp_allocate()))
+			return NULL;
+
+		// Physically create it
+		iBmp_createBySize(bmpNew, bmp->bi.biWidth, bmp->bi.biHeight, bmp->bi.biBitCount);
+
+		// Render it
+		if (bmp->bi.biBitCount == 24)
+		{
+			// Iterate through line by line
+			for (lnY = 0; lnY < bmp->bi.biHeight; ++lnY)
+			{
+				// Get our pointers
+				lrgbS = (SRgb*)(bmp->bd    + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth));
+				lrgbD = (SRgb*)(bmpNew->bd + (lnY * bmpNew->rowWidth));
+
+				// Copy the entire row
+				memcpy(lrgbD, lrgbS, bmp->rowWidth);
+			}
+
+		} else if (bmp->bi.biBitCount == 32) {
+			// Iterate through line by line
+			for (lnY = 0; lnY < bmp->bi.biHeight; ++lnY)
+			{
+				// Get our pointers
+				lrgbaS = (SRgba*)(bmp->bd    + ((bmp->bi.biHeight - lnY - 1) * bmp->rowWidth));
+				lrgbaD = (SRgba*)(bmpNew->bd + (lnY * bmpNew->rowWidth));
+
+				// Copy the entire row
+				memcpy(lrgbaD, lrgbaS, bmp->rowWidth);
+			}
+		}
+
+		// Signify
+		return bmpNew;
+	}
+
+
+
+
+//////////
+//
+// Called to rotate an image by 90 degrees counter-clockwise
+//
+//////
+	SBitmap* iBmp_rotate90DegreesCCW(SBitmap* bmp)
+	{
+		s32			lnXS, lnYS;
+		SRgb*		lrgbS;
+		SRgb*		lrgbD;
+		SRgba*		lrgbaS;
+		SRgba*		lrgbaD;
+		SBitmap*	bmpNew;
+
+
+		// Create a new image
+		if (!bmp || !(bmp->bi.biBitCount == 24 || bmp->bi.biBitCount == 32) || !(bmpNew = iBmp_allocate()))
+			return NULL;
+
+		// Physically create it
+		iBmp_createBySize(bmpNew, bmp->bi.biHeight, bmp->bi.biWidth, bmp->bi.biBitCount);
+
+		// Render it
+		if (bmp->bi.biBitCount == 24)
+		{
+			// Iterate through line by line
+			for (lnYS = 0; lnYS < bmp->bi.biHeight; ++lnYS)
+			{
+				// Get our pointers
+				lrgbS = (SRgb*)(bmp->bd    + ((bmp->bi.biHeight   - lnYS - 1) * bmp->rowWidth));
+				lrgbD = (SRgb*)(bmpNew->bd + (lnYS                            * (bmp->bi.biBitCount / 8)));
+
+				// Iterate across this row
+				for (lnXS = 0; lnXS < bmp->bi.biWidth; ++lnXS, ++lrgbS, lrgbD = (SRgb*)((s8*)lrgbD + bmpNew->rowWidth))
+					*lrgbD = *lrgbS;	// Copy the pixel
+			}
+
+		} else if (bmp->bi.biBitCount == 32) {
+			// Iterate through line by line
+			for (lnYS = 0; lnYS < bmp->bi.biHeight; ++lnYS)
+			{
+				// Get our pointers
+				lrgbaS = (SRgba*)(bmp->bd    + ((bmp->bi.biHeight   - lnYS - 1) * bmp->rowWidth));
+				lrgbaD = (SRgba*)(bmpNew->bd + (lnYS                            * 4));
+
+				// Iterate across this row
+				for (lnXS = 0; lnXS < bmp->bi.biWidth; ++lnXS, ++lrgbaS, lrgbaD = (SRgba*)((s8*)lrgbaD + bmpNew->rowWidth))
+					*lrgbaD = *lrgbaS;	// Copy the pixel
+			}
+		}
+
+		// Signify
+		return bmpNew;
 	}
 
 
@@ -3709,13 +3913,13 @@ exit_politely:
 				lbgra = (SBgra*)(bmp->bd + ((bmp->bi.biHeight - tnY - 1) * bmp->rowWidth) + (tnX * 4));
 
 				// Return directly
-				return(*lbgra);
+				return *lbgra;
 			}
 		}
 
 		// If we get here, invalid
 		invalidColor.color = rgba(0,0,0,255);
-		return(invalidColor);
+		return invalidColor;
 	}
 
 
@@ -4493,27 +4697,41 @@ exit_politely:
 
 //////////
 //
-// Called to dapple the bitmap using a template dappler. :-)
+// Called to dapple the bitmap using a template dappler
 //
 //////
+	// bmpDappleTmp should be the same dimensions as bmpDapple
 	void iBmp_dapple(SBitmap* bmp, SBitmap* bmpDapple, SBitmap* bmpDappleTmp, f32 tfBias, f32 tfInfluence)
 	{
-		s32		lnX, lnY, lnX2, lnY2;
-		f32		lfGray;
-		SBgr*	lbgrd;
-		SBgr*	lbgrs;
-		SBgr*	lbgrt;
-		SBgra*	lbgrad;
-		SBgra*	lbgras;
-		SBgra*	lbgrat;
+		bool		llAllocated;
+		s32			lnX, lnY, lnX2, lnY2;
+		f32			lfGray;
+		SBgr*		lbgrd;
+		SBgr*		lbgrs;
+		SBgr*		lbgrt;
+		SBgra*		lbgrad;
+		SBgra*		lbgras;
+		SBgra*		lbgrat;
 
-
-// Temporarily disabled
-return;
 
 		// Make sure the environment is sane
-		if (bmp && bmpDapple && bmpDappleTmp)
+		if (bmp && bmpDapple)
 		{
+			//////////
+			// Temporary dapple bitmap
+			//////
+				// Make sure we have a temporary dapple bitmap
+				if (!bmpDappleTmp)
+				{
+					// We need to allocate a copy
+					llAllocated = true;
+					bmpDappleTmp = iBmp_copy(bmpDapple);
+
+				} else {
+					// We use what they provided
+					llAllocated = false;
+				}
+
 
 			//////////
 			// This algorithm is math-intensive, so we pre-compute the values and just do addition
@@ -4551,9 +4769,10 @@ return;
 
 				} else {
 					// Unknown format
-#ifdef iError_signal
-					iError_signal(_ERROR_INTERNAL_ERROR, NULL, false, (s8*)"dapple bitcount", false);
-#endif
+					if (llAllocated)
+						iBmp_delete(&bmpDappleTmp, true, true);
+
+					// All done
 					return;
 				}
 
@@ -4666,7 +4885,71 @@ return;
 					}
 				}
 
+
+			//////////
+			// Clean up
+			//////
+				if (llAllocated)
+					iBmp_delete(&bmpDappleTmp, true, true);
+
 		}
+	}
+
+
+
+
+//////////
+//
+// Called to draw the indicated text in a TrueType font
+//
+//////
+	s32 iBmp_drawFontTT(SBitmap* bmp, s8* tcFontName, s32 tnPointSize, bool tlBold, bool tlItalic, bool tlUnderline, bool tlStrikethru, s8* tcText, s32 tnX, s32 tnY, SBgra color)
+	{
+		s32			lnSize, lnLength;
+		RECT		lrc = { };
+		HFONT		hfont, hfontOld;
+
+		// We use this as a return value, encoded with the width and height of the rectange rendered for the text
+		union
+		{
+			POINTS		pt;
+			s32			lnCoords;
+		};
+
+
+		// Create the font
+		lnSize	= -MulDiv(tnPointSize, GetDeviceCaps(GetDC(GetDesktopWindow()), LOGPIXELSY), 72);
+		hfont	= CreateFont(	lnSize, 0, 0, 0,
+								((tlBold)		? FW_BOLD	: FW_NORMAL),
+								((tlItalic)		? 1			: 0),
+								((tlUnderline)	? 1			: 0),
+								((tlStrikethru)	? 1			: 0),
+								ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+								CLEARTYPE_NATURAL_QUALITY, FF_DONTCARE,
+								tcFontName	);
+
+		// Calculate the rectangle
+		hfontOld = (HFONT)SelectObject(bmp->hdc, hfont);
+		lnLength = (s32)strlen(tcText);
+		SetRect(&lrc, 0, 0, 0, 0);
+		DrawText(bmp->hdc, tcText, lnLength, &lrc, DT_SINGLELINE | DT_CALCRECT);
+
+		// Store it encoded in our return variable
+		pt.x = (s16)(lrc.right - lrc.left);
+		pt.y = (s16)(lrc.bottom - lrc.top);
+
+		// Setup for the render
+		SetBkMode(bmp->hdc, TRANSPARENT);
+		SetTextColor(bmp->hdc, RGB(color.red, color.grn, color.blu));
+		OffsetRect(&lrc, tnX, tnY);
+		DrawText(bmp->hdc, tcText, lnLength, &lrc, DT_SINGLELINE);
+
+		// Clean up
+		SelectObject(bmp->hdc, hfontOld);
+		DeleteObject((HGDIOBJ)hfont);
+
+		// Signify
+		return lnCoords;
 	}
 
 
@@ -4677,10 +4960,21 @@ return;
 // Draws a single character at the indicated offset in a random font
 //
 //////
+	void iiBmp_drawFontBitmap(SBitmap* bmp, s32 fontX, s32 fontY, s8* tcText, s32 tnTextLength, RECT* rc, SBgra foreColor, SBgra backColor)
+	{
+		s32		lnI;
+
+
+		// Iterate for every character
+		for (lnI = 0; lnI < tnTextLength; ++lnI, OffsetRect(rc, fontX, 0))
+			iBmp_drawFontBitmap_char(bmp, fontX, fontY, tcText[lnI], rc, foreColor, backColor);
+
+	}
+
 	void iBmp_drawFontBitmap_char(SBitmap* bmp, s32 fontX, s32 fontY, u8 c, RECT* rc, SBgra foreColor, SBgra backColor)
 	{
 		u8			lcC, lnBit;
-		s32			lnY, lnX;
+		s32			lnI, lnY, lnX, lnPixelRows;
 		u8*			fontBase;
 		SBgr*		lbgr;
 
@@ -4690,10 +4984,11 @@ return;
 		{
 			switch (fontY)
 			{
-				case 6:		{	fontBase = (u8*)&gxFontBase_8x6[(u32)c * 6];		break;	};
-				case 8:		{	fontBase = (u8*)&gxFontBase_8x8[(u32)c * 8];		break;	};
-				case 14:	{	fontBase = (u8*)&gxFontBase_8x14[(u32)c * 14];		break;	};
-				case 16:	{	fontBase = (u8*)&gxFontBase_8x16[(u32)c * 16];		break;	};
+				case 6:		{	fontBase = (u8*)&gxFontBase_8x6[(u32)c * 6];					lnPixelRows = 1;	break;	};
+				case 8:		{	fontBase = (u8*)&gxFontBase_8x8[(u32)c * 8];					lnPixelRows = 1;	break;	};
+				case 12:	{	fontBase = (u8*)&gxFontBase_8x6[(u32)c * 6];		fontY = 6;	lnPixelRows = 2;	break;	};
+				case 14:	{	fontBase = (u8*)&gxFontBase_8x14[(u32)c * 14];					lnPixelRows = 1;	break;	};
+				case 16:	{	fontBase = (u8*)&gxFontBase_8x16[(u32)c * 16];					lnPixelRows = 1;	break;	};
 					break;
 
 				default:
@@ -4705,25 +5000,29 @@ return;
 			for (lnY = 0; lnY < fontY; ++lnY, ++fontBase)
 			{
 				// Grab the start of this row
-				lbgr = (SBgr*)(bmp->bd + ((bmp->bi.biHeight - lnY - rc->top - 1) * bmp->rowWidth) + (rc->left * 3));
-
-				// Iterate across this pixel bit by bit
-				lcC = *fontBase;
-				for (lnX = 0, lnBit = 0x80; lnBit != 0; ++lnX, ++lbgr, lnBit >>= 1)
+				for (lnI = 0; lnI < 2; ++lnI)
 				{
-					// Is this bit on or off?
-					if (lcC & lnBit)
-					{
-						// It's a foreground pixel
-						lbgr->red = foreColor.red;
-						lbgr->grn = foreColor.grn;
-						lbgr->blu = foreColor.blu;
+					lbgr = (SBgr*)(bmp->bd + ((bmp->bi.biHeight - ((lnY * lnPixelRows) + lnI + 1) - rc->top - 1) * bmp->rowWidth) + (rc->left * 3));
 
-					} else {
-						// It's a background pixel
-						lbgr->red = backColor.red;
-						lbgr->grn = backColor.grn;
-						lbgr->blu = backColor.blu;
+					// Iterate across this pixel bit by bit
+					lcC = *fontBase;
+					for (lnX = 0, lnBit = 0x80; lnBit != 0; ++lnX, ++lbgr, lnBit >>= 1)
+					{
+						// Are we within our rectangle
+						// Is this bit on or off?
+						if (lcC & lnBit)
+						{
+							// It's a foreground pixel
+							lbgr->red = foreColor.red;
+							lbgr->grn = foreColor.grn;
+							lbgr->blu = foreColor.blu;
+
+						} else {
+							// It's a background pixel
+							lbgr->red = backColor.red;
+							lbgr->grn = backColor.grn;
+							lbgr->blu = backColor.blu;
+						}
 					}
 				}
 			}
@@ -4791,14 +5090,19 @@ return;
 // Called to draw a point
 //
 //////
-	void iBmp_drawPoint(SBitmap* bmp, s32 tnX, s32 tnY, SBgra color)
+	void iBmp_drawPoint(SBitmap* bmp, s32 tnX, s32 tnY, SBgra color, f32 tfAlpha)
 	{
+		f32		lfAlp, lfMalp;
 		SBgr*	lbgr;
 		SBgra*	lbgra;
 
 
 		if (bmp)
 		{
+			// Grab our factors
+			lfAlp  = tfAlpha;
+			lfMalp = 1.0f - lfAlp;
+
 			// Make sure our coordinates are valid
 			if (tnX >= 0 && tnX < bmp->bi.biWidth && tnY >= 0 && tnY < bmp->bi.biHeight)
 			{
@@ -4808,38 +5112,38 @@ return;
 					lbgr = (SBgr*)(bmp->bd + ((bmp->bi.biHeight - tnY - 1) * bmp->rowWidth) + (tnX * 3));
 
 					// Draw it
-					lbgr->red	= color.red;
-					lbgr->grn	= color.grn;
-					lbgr->blu	= color.blu;
+					lbgr->red = (u8)(((f32)color.red * lfAlp) + ((f32)lbgr->red * lfMalp));
+					lbgr->grn = (u8)(((f32)color.grn * lfAlp) + ((f32)lbgr->grn * lfMalp));
+					lbgr->blu = (u8)(((f32)color.blu * lfAlp) + ((f32)lbgr->blu * lfMalp));
 
 				} else if (bmp->bi.biBitCount == 32) {
 					// Get our offset
 					lbgra = (SBgra*)(bmp->bd + ((bmp->bi.biHeight - tnY - 1) * bmp->rowWidth) + (tnX * 4));
 
 					// Draw it
-					lbgra->red	= color.red;
-					lbgra->grn	= color.grn;
-					lbgra->blu	= color.blu;
+					lbgra->red = (u8)(((f32)color.red * lfAlp) + ((f32)lbgra->red * lfMalp));
+					lbgra->grn = (u8)(((f32)color.grn * lfAlp) + ((f32)lbgra->grn * lfMalp));
+					lbgra->blu = (u8)(((f32)color.blu * lfAlp) + ((f32)lbgra->blu * lfMalp));
 				}
 			}
 		}
 	}
 
-	void iBmp_drawBullet(SBitmap* bmp, s32 tnX, s32 tnY, SBgra color)
+	void iBmp_drawBullet(SBitmap* bmp, s32 tnX, s32 tnY, SBgra color, f32 tfAlpha)
 	{
-		iBmp_drawPoint(bmp, tnX-1,	tnY-1,	color);		// 1
-		iBmp_drawPoint(bmp, tnX,	tnY-1,	color);		// 2
-		iBmp_drawPoint(bmp, tnX+1,	tnY-1,	color);		// 3
+		iBmp_drawPoint(bmp, tnX-1,	tnY-1,	color,	tfAlpha);		// 1
+		iBmp_drawPoint(bmp, tnX,	tnY-1,	color,	tfAlpha);		// 2
+		iBmp_drawPoint(bmp, tnX+1,	tnY-1,	color,	tfAlpha);		// 3
 
-		iBmp_drawPoint(bmp, tnX,	tnY-2,	color);		// 4      Draws one of these using 11 points:
-		iBmp_drawPoint(bmp, tnX,	tnY-1,	color);		// 5                      123
-		iBmp_drawPoint(bmp, tnX,	tnY,	color);		// 6                     45678
-		iBmp_drawPoint(bmp, tnX,	tnY+1,	color);		// 7                      901
-		iBmp_drawPoint(bmp, tnX,	tnY+2,	color);		// 8
+		iBmp_drawPoint(bmp, tnX,	tnY-2,	color,	tfAlpha);		// 4      Draws one of these using 11 points:
+		iBmp_drawPoint(bmp, tnX,	tnY-1,	color,	tfAlpha);		// 5                      123
+		iBmp_drawPoint(bmp, tnX,	tnY,	color,	tfAlpha);		// 6                     45678
+		iBmp_drawPoint(bmp, tnX,	tnY+1,	color,	tfAlpha);		// 7                      901
+		iBmp_drawPoint(bmp, tnX,	tnY+2,	color,	tfAlpha);		// 8
 
-		iBmp_drawPoint(bmp, tnX-1,	tnY+1,	color);		// 9
-		iBmp_drawPoint(bmp, tnX,	tnY+1,	color);		// 10
-		iBmp_drawPoint(bmp, tnX+1,	tnY+1,	color);		// 11
+		iBmp_drawPoint(bmp, tnX-1,	tnY+1,	color,	tfAlpha);		// 9
+		iBmp_drawPoint(bmp, tnX,	tnY+1,	color,	tfAlpha);		// 10
+		iBmp_drawPoint(bmp, tnX+1,	tnY+1,	color,	tfAlpha);		// 11
 	}
 
 	void iBmp_fillRect(SBitmap* bmp, RECT* rc, SBgra colorNW, SBgra colorNE, SBgra colorSW, SBgra colorSE, bool tlUseGradient, RECT* rcClip, bool tluseClip)
@@ -5151,13 +5455,14 @@ return;
 
 		if (bmp && rc)
 		{
+
 		//////////
 		// Fill every row
 		//////
 			lfWidth			= (f32)(rc->right  - 1 - rc->left);
 			lfHeight		= (f32)(rc->bottom - 1 - rc->top);
 			lfPercentInc	= 1.0f / lfHeight;
-			for (lfPercent = 0.0, lnY = rc->top; lnY < rc->bottom; lnY++, lfPercent += lfPercentInc)
+			for (lfPercent = 0.0, lnY = rc->top; lnY <= rc->bottom; ++lnY, lfPercent += lfPercentInc)
 			{
 				if (tlUseGradient)
 				{
@@ -5362,46 +5667,232 @@ return;
 		// Iterate for each point
 		for (lfX = (f32)tnX1, lfY = (f32)tnY1; lfRadius > 0.0f; lfRadius--, lfX += lfXStep, lfY += lfYStep)
 			iBmp_drawPoint(bmp, (s32)lfX, (s32)lfY, color);
+
 	}
 
+	void iBmp_drawColorizedLineGradient(SBitmap* bmp, s32 tnX1, s32 tnY1, s32 tnX2, s32 tnY2, SBgra colorBeg, SBgra colorEnd, f32 tfAlpha)
+	{
+		f32		lfX, lfY, lfXStep, lfYStep, lfSteps, lfDeltaX, lfDeltaY;
+		f32		lfRed, lfGrn, lfBlu, lfRedInc, lfGrnInc, lfBluInc;
+		SBgra	color;
 
-// #define _PI2 1.570796327
-// 	void iBmp_drawArbitraryQuad(SBitmap* bmp, s32 tnX1, s32 tnY1, s32 tnX2, s32 tnY2, s32 tnWidth, bool tlDrawEnds, SBgra color)
-// 	{
-// 		f32				lfX1, lfY1, lfX2, lfY2, lfX3, lfY3, lfX4, lfY4;
-// 		SGraceVecLine	line;
-//
-//
-// 		//////////
-// 		// Compute the line
-// 		/////
-// 			line.p1.x = (f32)tnX1;
-// 			line.p1.y = (f32)tnY1;
-// 			line.p2.x = (f32)tnX2;
-// 			line.p2.y = (f32)tnY2;
-// 			iivvm_math_computeLine(&line);
-//
-//
-// 		//////////
-// 		// Draw the line
-// 		//////
-// 			lfX1 = line.p1.x + ((f32)cos(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfY1 = line.p1.y + ((f32)sin(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfX2 = line.p1.x + ((f32)cos(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfY2 = line.p1.y + ((f32)sin(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
-// 			if (tlDrawEnds)
-// 				iBmp_drawArbitraryLine(bmp, (s32)lfX1, (s32)lfY1, (s32)lfX2, (s32)lfY2, color);
-//
-// 			lfX3 = line.p2.x + ((f32)cos(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfY3 = line.p2.y + ((f32)sin(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfX4 = line.p2.x + ((f32)cos(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
-// 			lfY4 = line.p2.y + ((f32)sin(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
-// 			if (tlDrawEnds)
-// 				iBmp_drawArbitraryLine(bmp, (s32)lfX3, (s32)lfY3, (s32)lfX4, (s32)lfY4, color);
-//
-// 			iBmp_drawArbitraryLine(bmp, (s32)lfX1, (s32)lfY1, (s32)lfX3, (s32)lfY3, color);
-// 			iBmp_drawArbitraryLine(bmp, (s32)lfX2, (s32)lfY2, (s32)lfX4, (s32)lfY4, color);
-// 	}
+
+		// Compute the distance
+		lfDeltaX = (f32)(tnX2 - tnX1);
+		lfDeltaY = (f32)(tnY2 - tnY1);
+		lfSteps  = (f32)sqrt((lfDeltaX*lfDeltaX) + (lfDeltaY*lfDeltaY));
+		if (lfSteps < 1.0f)
+			return;
+
+		// Compute our steps per pixel
+		lfXStep = lfDeltaX / lfSteps;
+		lfYStep = lfDeltaY / lfSteps;
+
+		// Compute our color changes
+		lfRed    = (f32)colorBeg.red;		lfRedInc = (f32)(colorEnd.red - colorBeg.red) / lfSteps;
+		lfGrn    = (f32)colorBeg.grn;		lfGrnInc = (f32)(colorEnd.grn - colorBeg.grn) / lfSteps;
+		lfBlu    = (f32)colorBeg.blu;		lfBluInc = (f32)(colorEnd.blu - colorBeg.blu) / lfSteps;
+
+		// Iterate for each point
+		for (lfX = (f32)tnX1, lfY = (f32)tnY1; lfSteps > 0.0f; lfSteps--, lfX += lfXStep, lfY += lfYStep)
+		{
+			// Grab the color for this stage
+			color.red = (u8)lfRed;
+			color.grn = (u8)lfGrn;
+			color.blu = (u8)lfBlu;
+
+			// Render this point
+			iBmp_drawPoint(bmp, (s32)lfX, (s32)lfY, color, tfAlpha);
+
+			// Color increment
+			lfRed += lfRedInc;
+			lfGrn += lfGrnInc;
+			lfBlu += lfBluInc;
+		}
+
+	}
+
+	#define _PI2 1.570796327
+
+	struct SXYS32
+	{
+		s32			x;
+		s32			y;
+	};
+
+	struct SXYF32
+	{
+		f32			x;
+		f32			y;
+	};
+
+	struct SLineF32
+	{
+		union {
+			SXYF32	start;						// [input] Starting point
+			SXYF32	p1;
+		};
+
+		union {
+			SXYF32	end;						// [input] Ending point
+			SXYF32	p2;
+		};
+
+		// The following are computed with vvm_math_computeLine()
+		SXYF32		delta;						// Delta between start and end
+		SXYF32		mid;						// Midpoint
+		union {
+			f32		length;						// Length
+			f32		radius;						// Radius for the trig function
+		};
+		f32			m;							// Slope
+		f32			mp;							// Perpendicular slope
+
+		// Only used and computed if trig is true
+		bool		trig;						// Should trig functions be computed?
+		f32			theta;						// Theta (from p1 to p2, note: add _PI to reverse the angle from p2 to p1)
+
+		// Only used and computed if ints is true
+		bool		ints;						// Should integer approximations be calculated?
+		union {
+			SXYS32	starti;						// Starting x,y
+			SXYS32	p1i;
+		};
+		union {
+			SXYS32	endi;						// Ending x,y
+			SXYS32	p2i;
+		};
+
+		// Only used and computed if quads is true
+		bool		quads;						// Should we compute quadrants?
+		union {
+			s32		start_quad;					// What quadrant is start/p1 in?
+			s32		p1_quad;
+		};
+		union {
+			s32		end_quad;					// What quadrant is end/p2 in?
+			s32		p2_quad;
+		};
+	};
+
+	s32 iivvm_math_computeQuad(SXYF32* p)
+	{
+		if (p->x >= 0.0)
+		{
+			// Either 1 or 4
+			if (p->y >= 0.0)		return(1);		// X is positive, Y is positive
+			else					return(4);		// X is positive, Y is negative
+
+		} else {
+			// Either 2 or 3
+			if (p->y >= 0.0)		return(2);		// X is negative, Y is positive
+			else					return(3);		// X is negative, Y is negative
+		}
+	}
+
+	f32 iivvm_math_adjustTheta(f32 tfTheta)
+	{
+		// Validate theta is positive
+		while (tfTheta < 0.0)
+			tfTheta += (f32)_2PI;
+
+		// Validate theta is 0..2pi
+		while (tfTheta > _2PI)
+			tfTheta -= (f32)_2PI;
+
+		return(tfTheta);
+	}
+
+	void iivvm_math_computeLine(SLineF32* line)
+	{
+		// Midpoint = (x2-x1)/2, (y2-y1)/2
+		line->mid.x			= (line->p1.x + line->p2.x) / 2.0f;
+		line->mid.y			= (line->p1.y + line->p2.y) / 2.0f;
+
+		// Compute our deltas
+		line->delta.x		= line->p2.x - line->p1.x;
+		line->delta.y		= line->p2.y - line->p1.y;
+
+		// Length
+		line->length		= sqrt(line->delta.x*line->delta.x + line->delta.y*line->delta.y);
+
+		// Slope = rise over run
+		line->m				= line->delta.y / ((line->delta.x == 0.0f) ? 0.000001f : line->delta.x);
+
+		// Perpendicular slope = -1/m
+		line->mp			= -1.0f / ((line->m == 0.0) ? 0.000001f : line->m);
+
+
+		//////////
+		// Compute theta if need be (radius is same as length)
+		/////
+			if (line->trig)
+				line->theta		= iivvm_math_adjustTheta(atan2(line->delta.y, line->delta.x));
+
+
+		//////////
+		// Compute the integer roundings if need be
+		//////
+			if (line->ints)
+			{
+				// Start
+				line->p1i.x		= (s32)line->p1.x;
+				line->p1i.y		= (s32)line->p1.y;
+				// End
+				line->p2i.x		= (s32)line->p2.x;
+				line->p2i.y		= (s32)line->p2.y;
+			}
+
+
+		//////////
+		// Compute the quadrants if need be
+		//////
+			if (line->quads)
+			{
+				// Quads 1..4
+				line->p1_quad	= iivvm_math_computeQuad(&line->p1);
+				line->p2_quad	= iivvm_math_computeQuad(&line->p2);
+			}
+
+	}
+
+	void iBmp_drawArbitraryQuad(SBitmap* bmp, s32 tnX1, s32 tnY1, s32 tnX2, s32 tnY2, s32 tnWidth, bool tlDrawEnds, SBgra color)
+	{
+		f32			lfX1, lfY1, lfX2, lfY2, lfX3, lfY3, lfX4, lfY4;
+		SLineF32	line;
+
+
+		//////////
+		// Compute the line
+		/////
+			line.p1.x = (f32)tnX1;
+			line.p1.y = (f32)tnY1;
+			line.p2.x = (f32)tnX2;
+			line.p2.y = (f32)tnY2;
+			iivvm_math_computeLine(&line);
+
+
+		//////////
+		// Draw the line
+		//////
+			lfX1 = line.p1.x + ((f32)cos(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
+			lfY1 = line.p1.y + ((f32)sin(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
+			lfX2 = line.p1.x + ((f32)cos(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
+			lfY2 = line.p1.y + ((f32)sin(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
+			if (tlDrawEnds)
+				iBmp_drawArbitraryLine(bmp, (s32)lfX1, (s32)lfY1, (s32)lfX2, (s32)lfY2, color);
+
+			lfX3 = line.p2.x + ((f32)cos(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
+			lfY3 = line.p2.y + ((f32)sin(line.theta + _PI2) * ((f32)tnWidth / 2.0f));
+			lfX4 = line.p2.x + ((f32)cos(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
+			lfY4 = line.p2.y + ((f32)sin(line.theta - _PI2) * ((f32)tnWidth / 2.0f));
+			if (tlDrawEnds)
+				iBmp_drawArbitraryLine(bmp, (s32)lfX3, (s32)lfY3, (s32)lfX4, (s32)lfY4, color);
+
+			iBmp_drawArbitraryLine(bmp, (s32)lfX1, (s32)lfY1, (s32)lfX3, (s32)lfY3, color);
+			iBmp_drawArbitraryLine(bmp, (s32)lfX2, (s32)lfY2, (s32)lfX4, (s32)lfY4, color);
+
+	}
 
 	void iBmp_drawHorizontalLine(SBitmap* bmp, s32 tnX1, s32 tnX2, s32 tnY, SBgra color)
 	{
